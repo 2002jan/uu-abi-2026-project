@@ -1,11 +1,10 @@
 import panel as pn
 
+from dashboard.pages import Page
 from dashboard.sidebar import Sidebar
-from dashboard.utils.state import Results, AppState
-import hvplot.xarray
-import hvplot.pandas
+from dashboard.utils.state import AppState
+import xarray as xr
 
-from zarr_project.stats.qc import median_from_hist
 
 pn.extension(sizing_mode="stretch_width", throttled=True)
 
@@ -13,62 +12,47 @@ state = AppState()
 sidebar = Sidebar()
 sidebar.state = state
 
-def plot(df: Results | None):
+
+def render_page(page, df: xr.Dataset | None):
     if df is None:
         return "No data yet"
 
-    avg_in = df.mean.sortby(df.mean)
+    return page.render(df)
 
-    avg = avg_in.hvplot.barh(
-        x="sample",
-        y="depth",
-        title="Avg depth per sample",
-        xlabel="Sample",
-        ylabel="Avg depth",
-        height=800,
-        responsive=True,
-    ).opts(
-        tools=["hover"],
-        default_tools=[]
-    ) * avg_in.hvplot.labels(
-        x="sample",
-        y="depth",
-        hover=False,
-        text_align="right",
-        text_color="white",
-        responsive=True,
+
+main_area = pn.Column(
+    ""
+)
+
+def switch_page(page: Page):
+    main_area[:] = [pn.bind(render_page, page, state.param.data)]
+
+
+def nav():
+    pages = [p() for p in Page.registry.values()]
+    pages.sort(key=lambda p: p.order)
+
+    menu = pn.ui.TabMenu(
+        items=[{"label": p.title} for p in pages],
+        active=0,
+        color="light",
+        sizing_mode="fixed",
     )
+    menu.param.watch(lambda e: switch_page(pages[e.new]), "active")
 
-    med_in = median_from_hist(df.hist)
-    med_in = med_in.sort_values(by=["depth"])
 
-    med = med_in.hvplot.barh(
-        x="sample",
-        y="depth",
-        title="Median depth per sample",
-        xlabel="Sample",
-        ylabel="Median depth",
-        height=800,
-        responsive=True,
-    ).opts(
-        tools=["hover"],
-        default_tools=[]
-    ) * med_in.hvplot.labels(
-        x="sample",
-        y="depth",
-        hover=False,
-        text_align="right",
-        text_color="white",
-        responsive=True,
+    switch_page(pages[0])
+
+    return pn.Row(
+        pn.layout.HSpacer(),
+        menu,
+        sizing_mode="stretch_width",
     )
-
-    return pn.Column(avg,med, sizing_mode="stretch_width")
 
 
 pn.ui.Page(
-        title="Getting Started App",
-        sidebar=[sidebar],
-        main=[pn.bind(plot, state.param.data)],
+    title="Getting Started App",
+    sidebar=[sidebar],
+    main=[main_area],
+    header=[nav]
 ).servable()
-
-

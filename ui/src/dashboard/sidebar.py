@@ -2,16 +2,12 @@ import asyncio
 
 import panel as pn
 import param
-import pbzarr
 
 import zarr_project as zp
 import zarr_project.data
-from dashboard.utils.state import Results, AppState
+from dashboard.utils.state import AppState
+from zarr_project.stats.runner import compute_stats
 from dashboard.utils.dask import PanelProgress
-import dask.array as da
-
-from zarr_project.stats.qc import depth_histogram
-
 
 class Sidebar(param.Parameterized):
     state = param.ClassSelector(class_=AppState)
@@ -43,17 +39,15 @@ class Sidebar(param.Parameterized):
         return PanelProgress(self._bar, self._status)
 
     def compute(self, dataset):
-        ds = zarr_project.data.load_dataset(dataset)
+        # ds = zarr_project.data.load_dataset(dataset)
         # ds = pbzarr.region(ds, "LG1:0-1000")
         with self.progress():
-            ds_mean = ds.depth.mean("position")
-            hist = depth_histogram(ds.depth)
-
-            res_mean, hist = da.compute(ds_mean, hist)
-
-            return Results(res_mean, hist)
+            return compute_stats(dataset)
 
     async def run(self, event):
+        if self._dataset_selector.value is None:
+            return
+
         self._button.disabled = True
         self._button.label = "Running..."
         try:

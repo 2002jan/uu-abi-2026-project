@@ -1,7 +1,8 @@
 import numpy as np
 import xarray as xr
 
-MAX_DEPTH = 1000
+from zarr_project.stats.models import Params
+from zarr_project.stats.registry import metric
 
 def _block_hist(block, max_depth):
     n_samples = block.shape[1]
@@ -10,7 +11,7 @@ def _block_hist(block, max_depth):
     counts = np.bincount(idx.ravel(), minlength=n_samples * (max_depth + 1))
     return counts.reshape(1, n_samples, max_depth + 1)
 
-def depth_histogram(depth: xr.DataArray, max_depth: int = MAX_DEPTH) -> xr.DataArray:
+def depth_histogram(depth: xr.DataArray, max_depth: int) -> xr.DataArray:
     data = depth.data.rechunk({1: -1}) # all samples in one chunk
     hist = data.map_blocks(
         _block_hist, max_depth,
@@ -31,3 +32,11 @@ def median_from_hist(hist: xr.DataArray) -> xr.DataArray:
     median = (lo + hi) / 2
 
     return median.to_dataframe(name="depth").reset_index()
+
+@metric(version=1)
+def sample_mean(ds, params: Params):
+    return ds.depth.mean("position")
+
+@metric(version=1)
+def sample_histogram(ds, params: Params):
+    return depth_histogram(ds.depth, params.max_depth)
