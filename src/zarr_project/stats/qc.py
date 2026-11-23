@@ -33,6 +33,11 @@ def median_from_hist(hist: xr.DataArray) -> xr.DataArray:
 
     return median.to_dataframe(name="depth").reset_index()
 
+def breadth_of_coverage(hist: xr.DataArray) -> xr.DataArray:
+    data =  hist.isel(depth_value=slice(None, None, -1)).cumsum(dim="depth_value").isel(depth_value=slice(None, None, -1))
+    sums = hist.sum("depth_value")
+    return (data / sums).rename("breadth")
+
 @metric(version=1)
 def sample_mean(ds, params: Params):
     return ds.depth.mean("position")
