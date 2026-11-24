@@ -3,13 +3,18 @@ from typing import Callable, ClassVar
 import panel as pn
 import xarray as xr
 import pkgutil
+import param
 
-class Tab:
+from dashboard.utils.state import AppState
+
+
+class Tab(pn.viewable.Viewer):
     title: ClassVar[str] = ""
     order: ClassVar[int] = 0
     page_cls: ClassVar[type[Page]]
+    state = param.ClassSelector(class_=AppState)
 
-    def render(self, ds: xr.Dataset):
+    def __panel__(self):
         return f"[tab] {self.title}"
 
 class Page:
@@ -41,13 +46,13 @@ class Page:
         return decorator(_tab_cls) if _tab_cls is not None else decorator
 
 
-    def __init__(self):
-        self.tabs: list[Tab] = [tab_cls() for tab_cls in self._tab_classes]
+    def __init__(self, state: AppState):
+        self.tabs: list[Tab] = [tab_cls(state=state) for tab_cls in self._tab_classes]
 
     def render(self, ds: xr.Dataset):
 
         tabs = [
-            (tab.title, tab.render(ds)) for tab in sorted(self.tabs, key=lambda t: t.order)
+            (tab.title, tab) for tab in sorted(self.tabs, key=lambda t: t.order)
         ]
 
         return pn.ui.Tabs(

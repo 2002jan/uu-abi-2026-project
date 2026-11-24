@@ -1,3 +1,4 @@
+import param
 import xarray as xr
 import hvplot.xarray
 import hvplot.pandas
@@ -16,7 +17,9 @@ class PerSamplePage(Page):
 class Mean(Tab):
     order = 1
 
-    def render(self, ds: xr.Dataset):
+    @param.depends("state.data")
+    def bar(self):
+        ds = self.state.data
         avg_in = ds.sample_mean.sortby(ds.sample_mean)
 
         return (avg_in.hvplot.barh(
@@ -40,11 +43,17 @@ class Mean(Tab):
             responsive=True,
         )).opts(shared_axes=False)
 
+    def __panel__(self):
+        return self.bar
+
+
 @PerSamplePage.tab(title="Median")
 class Median(Tab):
     order = 2
 
-    def render(self, ds: xr.Dataset):
+    @param.depends("state.data")
+    def bar(self):
+        ds = self.state.data
         med_in = median_from_hist(ds.sample_histogram)
         med_in = med_in.sort_values(by=["depth"])
 
@@ -69,53 +78,37 @@ class Median(Tab):
             responsive=True,
         )).opts(shared_axes=False)
 
+    def __panel__(self):
+        return self.bar
+
+
 @PerSamplePage.tab(title="Breadth of Coverage")
 class BreadthOfCoverage(Tab):
     order = 3
+    depth = param.Selector(default=1, objects=[1, 2, 5, 10, 20])
+    max_x = param.Integer(default=20, bounds=(2, 100))
+    samples = param.ListSelector(default=[])
+    boc = param.ClassSelector(class_=xr.DataArray)
 
-    def __init__(self):
-        self.line_range_end = pn.ui.IntSlider(
-            label="Depth range",
-            start=2,
-            end=20,
-            step=1,
-            value=20,
-        )
+    @param.depends("state.data", watch=True, on_init=True)
+    def _on_data(self):
+        ds = self.state.data
+        if ds is None:
+            self.boc = None
+            return
+        self.param.samples.objects = self.state.data.sample.values.tolist()
+        self.samples = []
+        self.boc = breadth_of_coverage(self.state.data.sample_histogram)
 
-        self.bar_depth_selector = pn.ui.RadioButtonGroup(
-            label="Select depth (x)",
-            value=1,
-            options=[1,2,5,10,20],
-            margin=(0,10,25,10)
-        )
+    def _selected(self):
+        return self.boc.sel(sample=self.samples) if self.samples else self.boc
 
-    def render(self, ds: xr.Dataset):
-        sample_filter = pn.ui.MultiChoice(label="Filter samples", options=ds.sample.values.tolist())
+    @param.depends("boc", "max_x", "samples")
+    def line(self):
+        if self.boc is None:
+            return "No data yet"
 
-        boc = breadth_of_coverage(ds.sample_histogram)
-        max_depth = boc.sizes["depth_value"] - 1
-        self.line_range_end.end = max_depth
-        self.line_range_end.value = min(self.line_range_end.value, max_depth)
-
-        line = pn.bind(self.render_line, boc, self.line_range_end, sample_filter)
-        bar = pn.bind(self.render_bar, boc, self.bar_depth_selector, sample_filter)
-
-        return pn.layout.Column(
-            pn.Spacer(height=10),
-            sample_filter,
-            pn.layout.Divider(margin=(25,0,25,0)),
-            self.line_range_end,
-            line,
-            pn.layout.Divider(margin=(25,0,25,0)),
-            self.bar_depth_selector,
-            bar
-        )
-
-    def render_line(self, boc: xr.DataArray, range_end: int, samples: list):
-        boc = boc.sel(depth_value=slice(1, range_end))
-
-        if len(samples) > 0:
-            boc = boc.sel(sample=samples)
+        boc = self._selected().sel(depth_value=slice(1, self.max_x))
 
         return boc.hvplot.line(
             x="depth_value",
@@ -132,24 +125,24 @@ class BreadthOfCoverage(Tab):
             default_tools=[]
         )
 
-    def render_bar(self, boc: xr.DataArray, depth: int, samples: list):
-        height = max(30 * (len(samples) if len(samples) > 0 else boc.sizes["sample"]), 200)
+    @param.depends("state.data", "boc", "depth", "samples")
+    def bar(self):
+        if self.boc is None:
+            return "No data yet"
 
-        if len(samples) > 0:
-            boc = boc.sel(sample=samples)
-
-        boc = boc.sel(depth_value=depth)
+        boc = self._selected().sel(depth_value=self.depth)
         boc = boc.sortby(boc, ascending=True)
 
+        height = max(30 * boc.sizes["sample"], 200)
 
         return (boc.hvplot.barh(
-            x = "sample",
-            y = "breadth",
-            xlabel = "Sample",
-            ylabel = "Fraction of genome covered",
-            title = f"Breadth of coverage at ≥{depth}x",
-            height = height,
-            responsive = True,
+            x="sample",
+            y="breadth",
+            xlabel="Sample",
+            ylabel="Fraction of genome covered",
+            title=f"Breadth of coverage at ≥{self.depth}x",
+            height=height,
+            responsive=True,
         ).opts(
             tools=["hover"],
             default_tools=[]
@@ -162,3 +155,15 @@ class BreadthOfCoverage(Tab):
             text_color="white",
             responsive=True,
         )).opts(shared_axes=False)
+
+    def __panel__(self):
+        return pn.layout.Column(
+            pn.Spacer(height=10),
+            pn.ui.MultiChoice.from_param(self.param.samples, label="Filter by samples"),
+            pn.layout.Divider(margin=(25, 0, 25, 0)),
+            pn.ui.IntSlider.from_param(self.param.max_x, label="Depth range",),
+            self.line,
+            pn.layout.Divider(margin=(25, 0, 25, 0)),
+            pn.ui.RadioButtonGroup.from_param(self.param.depth, label="Select depth (x)", margin=(0,10,25,10)),
+            self.bar
+        )

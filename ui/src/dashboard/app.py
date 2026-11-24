@@ -29,7 +29,7 @@ def switch_page(page: Page):
 
 
 def nav():
-    pages = [p() for p in Page.registry.values()]
+    pages = [p(state) for p in Page.registry.values()]
     pages.sort(key=lambda p: p.order)
 
     menu = pn.ui.TabMenu(
